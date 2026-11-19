@@ -35,11 +35,12 @@ No. Only the hardware is replaced:
 
 ## Quick start (no hub needed)
 
-Requirements: macOS or Linux with `python3` (3.9+), and Docker for the tests and the CLI.
+Requirements: Docker for the tests and the CLI, and to run the devices on Linux. On macOS, `python3` (3.9+) runs the devices.
 
 ```bash
 # 1. Start the devices and dashboard
-python3 virtual-device/virtual_device.py
+scripts/run-devices.sh                        # Linux: in Docker, on your real network
+python3 virtual-device/virtual_device.py      # macOS: Docker can't see LAN multicast there
 
 # 2. In another terminal: find and control them the way the hub will
 python3 virtual-device/probe.py discover
@@ -68,7 +69,7 @@ scripts/st edge:channels:create             # once: your own driver channel
 scripts/st edge:channels:assign             # put the driver in the channel
 scripts/st edge:channels:enroll             # once: enroll your hub in the channel
 scripts/st edge:drivers:install             # install on the hub
-python3 virtual-device/virtual_device.py    # start the devices
+scripts/run-devices.sh                      # start the devices (Linux; macOS: python3 virtual-device/virtual_device.py)
 # SmartThings app: + → Add device → Scan for nearby devices
 scripts/st edge:drivers:logcat --hub-address=<hub-ip> -a   # live driver logs
 ```
@@ -95,6 +96,7 @@ docs/
   PROTOCOL.md           driver ⇄ device protocol
 scripts/
   st                    SmartThings CLI in Docker
+  run-devices.sh        virtual devices in Docker with host networking (Linux)
   test-devices.sh       virtual devices end to end
   test-driver.sh        driver vs devices, no hub
 AGENTS.md               rules and checklists for AI coding agents (CLAUDE.md points here)
@@ -106,6 +108,7 @@ AGENTS.md               rules and checklists for AI coding agents (CLAUDE.md poi
 |---|---|
 | Virtual devices, probe, hub-less driver tests | ✅ verified, run in CI |
 | Driver package builds with `@smartthings/cli` 3.0.1 | ✅ verified, run in CI |
+| Devices in Docker on Linux, discovered from the host network | ✅ verified, run in CI |
 | Install and run on a real hub | ⏳ not yet verified |
 
 ## Contributing / extending

@@ -5,3 +5,4 @@ virtual-devices.json.tmp
 __pycache__/
 build/
 .venv/
+.data/

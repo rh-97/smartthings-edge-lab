@@ -14,7 +14,7 @@ A **real, installable SmartThings Edge LAN driver** (Lua, runs on a SmartThings 
 | `virtual-device/probe.py` | Stand-in for the hub, for testing devices without one. Not used in production. | Laptop |
 | `docs/PROTOCOL.md` | The driver ⇄ device contract. **Source of truth.** | |
 | `docs/GUIDE.md` | Step-by-step guide for humans: concepts, install on a hub, troubleshooting | |
-| `scripts/` | `st` (SmartThings CLI in Docker), `test-driver.sh`, `test-devices.sh` | Host shell |
+| `scripts/` | `st` (SmartThings CLI in Docker), `run-devices.sh` (devices in Docker, Linux), `test-driver.sh`, `test-devices.sh` | Host shell |
 
 ## Commands
 
@@ -22,10 +22,11 @@ A **real, installable SmartThings Edge LAN driver** (Lua, runs on a SmartThings 
 scripts/test-devices.sh                 # virtual devices end to end (Docker)
 scripts/test-driver.sh                  # driver vs virtual devices, no hub (Docker)
 scripts/st edge:drivers:package driver --build-only build/driver.zip   # package builds? (no token needed)
-python3 virtual-device/virtual_device.py   # run the devices for real (host python3, see rules)
+scripts/run-devices.sh                  # run the devices for real on Linux (Docker, host network)
+python3 virtual-device/virtual_device.py   # run the devices for real on macOS (host python3, see rule 7)
 ```
 
-Run **both test scripts** after any change. Both must pass. CI (`.github/workflows/ci.yml`) runs the same three checks.
+Run **both test scripts** after any change. Both must pass. CI (`.github/workflows/ci.yml`) runs them, the package build, and a Linux job that starts `run-devices.sh` and discovers the devices from outside the container.
 
 ## Rules
 
@@ -35,7 +36,7 @@ Run **both test scripts** after any change. Both must pass. CI (`.github/workflo
 4. **`device_network_id` is the device's UUID**, never an IP or URL. Addresses live in the persisted field `base_url` and may change.
 5. **Use only Lua modules available on the hub:** `st.*`, `cosock`, `socket`, `ltn12`, `dkjson`, `log`. Don't add third-party Lua libraries to `driver/src/` without vendoring them and noting why.
 6. **Virtual devices stay standard-library Python** (3.9+), so they run on any Mac, Linux box or Termux with nothing installed. If a Python dependency ever becomes unavoidable, see rule 11.
-7. **Tooling runs in Docker**: CLI, Lua tests, Python tests. The one exception is running `virtual_device.py` for real against a hub. Docker on macOS can't receive LAN multicast (SSDP/mDNS), so it must run with the host's `python3`.
+7. **Tooling runs in Docker**: CLI, Lua tests, Python tests, and on **Linux** the virtual devices too (`scripts/run-devices.sh`, which uses `--network host` so SSDP multicast reaches the container). The one exception is running the devices on **macOS**: Docker there runs in a VM that LAN multicast never reaches, so use the host's `python3 virtual-device/virtual_device.py`. `run-devices.sh` refuses to run on non-Linux hosts on purpose.
 8. **Stay free and public:** use only Edge, the CLI's Edge commands, and public documentation. Don't call the paid SmartThings cloud API (OAuth API Access apps). Don't add anything from Samsung-internal sources.
 9. **Never commit secrets.** The CLI reads `SMARTTHINGS_TOKEN` from the environment; keep it there. `virtual-devices.json` (local device ids and state) is git-ignored.
 10. **Profiles are append-only once published:** SmartThings rejects a package update that removes a profile name. To change one, add a new `name` (e.g. `stlab-switch.v2`).

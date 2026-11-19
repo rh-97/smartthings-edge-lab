@@ -70,16 +70,42 @@ The driver never talks to the SmartThings cloud API directly. It uses the Edge f
 
 **Python environment:** the project uses no Python packages, so plain `python3` is enough and nothing is installed. If dependencies are ever added, they will live in a project-local `.venv/` managed by [uv](https://docs.astral.sh/uv/) (`uv run virtual-device/virtual_device.py`), never in your global Python. AGENTS.md (rule 11) has the details.
 
-**Why the virtual devices run directly in `python3` and not in Docker:** on macOS, Docker containers run inside a hidden Linux VM. Multicast traffic like SSDP and mDNS from your real network never reaches them, so the hub couldn't find them. The script uses only Python's standard library and installs nothing, so running it directly is safe. Everything else (CLI, tests) runs in Docker.
+**Linux vs macOS for the virtual devices:** the hub finds devices with multicast network traffic (SSDP, mDNS).
+- **Linux:** Docker can put a container directly on your network (`--network host`), so the devices run fully isolated in Docker with `scripts/run-devices.sh`.
+- **macOS:** Docker containers run inside a hidden Linux VM that multicast from your real network never reaches. Run the script with the Mac's own `python3` instead. It uses only Python's standard library and installs nothing, so that's safe.
+
+Everything else (CLI, tests) runs in Docker on both.
 
 ## 3. Run the virtual devices
+
+**On Linux** (recommended: everything stays in Docker):
+
+```bash
+cd smartthings-edge-lab
+scripts/run-devices.sh
+```
+
+All arguments go through to `virtual_device.py`, for example `scripts/run-devices.sh --devices switch,contact -v`. Device ids and state are kept in `.data/`. Stop with Ctrl+C, or `docker stop stlab-devices`.
+
+If the machine has a firewall (`ufw`, `firewalld`), allow the hub in:
+
+```bash
+sudo ufw allow 1900/udp && sudo ufw allow 8800:8805/tcp      # Ubuntu/Debian with ufw
+# firewalld: sudo firewall-cmd --add-port=1900/udp --add-port=8800-8805/tcp
+```
+
+In Docker, devices are found over SSDP only, without Bonjour. That's all the driver needs.
+
+**On macOS:**
 
 ```bash
 cd smartthings-edge-lab
 python3 virtual-device/virtual_device.py
 ```
 
-You'll see something like:
+macOS may ask whether Python can accept incoming connections, or whether Terminal can find devices on your local network. Allow both, or the hub can't reach the devices.
+
+Either way, you'll see something like:
 
 ```
 10:02:11 Dashboard: http://192.168.0.224:8800  (open it on your phone too)
@@ -90,8 +116,6 @@ You'll see something like:
 10:02:11   Lab Temperature Sensor       http://192.168.0.224:8805  id=18dd17b9-...
 10:02:11 Discovery: SSDP on, mDNS dns-sd
 ```
-
-macOS may ask whether Python can accept incoming connections, or whether Terminal can find devices on your local network. Allow both, or the hub can't reach the devices.
 
 Open the dashboard URL. Every device has controls: turn the switch on, drag the dimmer, open the door, trigger motion, change the temperature.
 
@@ -104,7 +128,9 @@ python3 virtual-device/virtual_device.py --name-prefix Desk                # "De
 python3 virtual-device/virtual_device.py -v                                # log every request
 ```
 
-Device ids and states are saved in `virtual-devices.json`, so the same devices come back after a restart. Delete the file to start fresh. SmartThings will then see them as new devices.
+The options work the same with `scripts/run-devices.sh` on Linux.
+
+Device ids and states are saved in `virtual-devices.json` (in `.data/` with `run-devices.sh`), so the same devices come back after a restart. Delete the file to start fresh. SmartThings will then see them as new devices.
 
 ### Check them without a hub
 
@@ -291,7 +317,9 @@ Every handler gets `(driver, device, command)`. `command.capability`, `command.c
 | Symptom | Check |
 |---|---|
 | `probe.py discover` finds nothing | Is `virtual_device.py` running? Did you allow Python's incoming connections in the macOS prompt? Is a VPN on? |
-| The hub finds nothing, but probe does | Laptop and hub must be on the same network and subnet. Guest Wi-Fi and "AP/client isolation" block device-to-device traffic. Check System Settings → Privacy & Security → Local Network for your terminal app. |
+| The hub finds nothing, but probe does | The machine and hub must be on the same network and subnet. Guest Wi-Fi and "AP/client isolation" block device-to-device traffic. On macOS, check System Settings → Privacy & Security → Local Network for your terminal app. On Linux, check the firewall (§3). Run probe from a *second* machine: probe on the same machine succeeds even when the firewall blocks everyone else. |
+| `run-devices.sh` says it needs Linux | On macOS, use `python3 virtual-device/virtual_device.py` (§2 explains why). |
+| `run-devices.sh`: port 1900 or 8800 already in use | Another SSDP/DLNA service (e.g. minidlna) is usually fine, since the script shares port 1900. For 8800–8805, pass `--base-port 9000`. |
 | Devices created but never update from the dashboard | Look for `subscriber added` in the device log. If it's missing, the driver couldn't reach the device. If pushes fail, the laptop can't reach the hub's push port (firewall). The 60 s poll still keeps things roughly in sync. |
 | Nothing in logcat | Is the driver installed (`scripts/st edge:drivers:installed`)? Is the hub IP right? |
 | CLI says unauthorized | The token has expired (24 h). Make a new one. |

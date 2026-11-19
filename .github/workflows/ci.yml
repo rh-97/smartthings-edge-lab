@@ -35,3 +35,32 @@ jobs:
         with:
           name: driver-package
           path: build/driver.zip
+
+  linux-host-network:
+    name: Devices in Docker, found from the host (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start devices with scripts/run-devices.sh
+        run: |
+          scripts/run-devices.sh --drift 0 > devices.log 2>&1 &
+          for i in $(seq 1 30); do grep -q "Press Ctrl+C" devices.log && break; sleep 1; done
+          cat devices.log
+      - name: Discover and control them from outside the container
+        run: |
+          out=$(python3 virtual-device/probe.py discover)
+          echo "$out"
+          [ "$(echo "$out" | grep -c "id=")" -eq 5 ]
+          python3 virtual-device/probe.py command "lab switch" switch on | grep -q '"switch": "on"'
+      - name: Push from the container reaches the host
+        run: |
+          timeout 8 python3 virtual-device/probe.py watch > watch.log 2>&1 &
+          sleep 3
+          python3 virtual-device/probe.py command "lab switch" switch off
+          sleep 3
+          cat watch.log
+          grep -q "push from Lab Switch" watch.log
+      - name: Device state persisted to .data/
+        run: test -s .data/virtual-devices.json
+      - if: always()
+        run: docker stop stlab-devices || true
