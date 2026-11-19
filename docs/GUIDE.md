@@ -68,6 +68,8 @@ The driver never talks to the SmartThings cloud API directly. It uses the Edge f
 | Real hub | A SmartThings hub (Station, Aeotec hub, or a Samsung TV/fridge with one built in) on the **same network** as your laptop, plus your SmartThings account |
 | CLI | Docker, and a personal access token (section 5) |
 
+**Python environment:** the project uses no Python packages, so plain `python3` is enough and nothing is installed. If dependencies are ever added, they will live in a project-local `.venv/` managed by [uv](https://docs.astral.sh/uv/) (`uv run virtual-device/virtual_device.py`), never in your global Python. AGENTS.md (rule 11) has the details.
+
 **Why the virtual devices run directly in `python3` and not in Docker:** on macOS, Docker containers run inside a hidden Linux VM. Multicast traffic like SSDP and mDNS from your real network never reaches them, so the hub couldn't find them. The script uses only Python's standard library and installs nothing, so running it directly is safe. Everything else (CLI, tests) runs in Docker.
 
 ## 3. Run the virtual devices

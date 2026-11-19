@@ -4,3 +4,4 @@ virtual-devices.json.tmp
 .DS_Store
 __pycache__/
 build/
+.venv/

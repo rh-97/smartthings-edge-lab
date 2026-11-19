@@ -34,11 +34,19 @@ Run **both test scripts** after any change. Both must pass. CI (`.github/workflo
 3. **Edge only allows binding port 0.** Never hard-code a listening port in the driver. That's why the driver re-subscribes on every `init`.
 4. **`device_network_id` is the device's UUID**, never an IP or URL. Addresses live in the persisted field `base_url` and may change.
 5. **Use only Lua modules available on the hub:** `st.*`, `cosock`, `socket`, `ltn12`, `dkjson`, `log`. Don't add third-party Lua libraries to `driver/src/` without vendoring them and noting why.
-6. **Virtual devices stay standard-library Python** (3.9+), so they run on any Mac, Linux box or Termux with nothing installed.
+6. **Virtual devices stay standard-library Python** (3.9+), so they run on any Mac, Linux box or Termux with nothing installed. If a Python dependency ever becomes unavoidable, see rule 11.
 7. **Tooling runs in Docker**: CLI, Lua tests, Python tests. The one exception is running `virtual_device.py` for real against a hub. Docker on macOS can't receive LAN multicast (SSDP/mDNS), so it must run with the host's `python3`.
 8. **Stay free and public:** use only Edge, the CLI's Edge commands, and public documentation. Don't call the paid SmartThings cloud API (OAuth API Access apps). Don't add anything from Samsung-internal sources.
 9. **Never commit secrets.** The CLI reads `SMARTTHINGS_TOKEN` from the environment; keep it there. `virtual-devices.json` (local device ids and state) is git-ignored.
 10. **Profiles are append-only once published:** SmartThings rejects a package update that removes a profile name. To change one, add a new `name` (e.g. `stlab-switch.v2`).
+11. **Python packages go only into a project-local virtual environment managed by [uv](https://docs.astral.sh/uv/). Never install into the global or system Python.**
+    - Never run `pip install`, `pip3 install`, `sudo pip`, `pip install --user` or `python3 -m pip install` against the host interpreter, and never `brew install` Python packages.
+    - Declare dependencies in a `pyproject.toml` at the repo root with `uv add <package>`. uv creates `.venv/` in the project and writes `uv.lock`; commit both `pyproject.toml` and `uv.lock`, never `.venv/`.
+    - Run Python on the host with `uv run <script>` (e.g. `uv run virtual-device/virtual_device.py`), which uses `.venv/` automatically. Don't activate or depend on any other environment.
+    - Pin the interpreter with `uv python pin 3.12` (writes `.python-version`) so every machine uses the same version.
+    - Inside Docker containers, already isolated, plain `python3` is fine, but install packages with `uv sync --frozen` from the same lock file so container and host match.
+    - Today the project has **no** Python dependencies and no `pyproject.toml`. Prefer keeping it that way. Add one only when a dependency is truly needed, and update README.md, docs/GUIDE.md (§3) and this file in the same change.
+    - If `uv` isn't installed, stop and ask the user. Don't fall back to pip or a global install.
 
 ## Adding a device type (checklist)
 
