@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  devices:
+    name: Virtual devices (end to end)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/test-devices.sh
+
+  driver:
+    name: Driver vs devices (no hub)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: scripts/test-driver.sh
+
+  package:
+    name: Driver package builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: mkdir -p build && scripts/st edge:drivers:package driver --build-only build/driver.zip
+      - run: unzip -l build/driver.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: driver-package
+          path: build/driver.zip

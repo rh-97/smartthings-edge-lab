@@ -1,0 +1,6 @@
+name: "Edge Lab Virtual Devices"
+packageKey: "smartthings-edge-lab"
+description: "LAN Edge driver for the smartthings-edge-lab virtual devices (switch, dimmer, contact, motion, temperature)."
+permissions:
+  lan: {}
+  discovery: {}

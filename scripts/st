@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# The SmartThings CLI, run in Docker so nothing is installed on your machine.
+#
+#   export SMARTTHINGS_TOKEN=...   # personal access token, see docs/GUIDE.md
+#   scripts/st edge:drivers:package driver
+#
+# The CLI reads SMARTTHINGS_TOKEN from the environment. Its config (saved
+# answers, trusted hub certificates) and npm's download cache live in Docker
+# volumes, so later runs are fast and remember your choices.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+CLI_VERSION="${ST_CLI_VERSION:-3.0.1}"
+
+tty_flags=-i
+[ -t 0 ] && [ -t 1 ] && tty_flags=-it
+
+exec docker run --rm $tty_flags \
+  -e SMARTTHINGS_TOKEN \
+  -v stlab-cli-config:/root/.config \
+  -v stlab-cli-data:/root/.local/share \
+  -v stlab-npm-cache:/root/.npm \
+  -v "$PWD":/work -w /work \
+  node:22-slim npx -y "@smartthings/cli@${CLI_VERSION}" "$@"

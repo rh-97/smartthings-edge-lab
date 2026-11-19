@@ -1,0 +1,6 @@
+virtual-devices.json
+virtual-devices.json.tmp
+*.zip
+.DS_Store
+__pycache__/
+build/
