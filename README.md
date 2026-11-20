@@ -94,6 +94,7 @@ virtual-device/
 docs/
   GUIDE.md              step-by-step guide, code tour, troubleshooting
   PROTOCOL.md           driver ⇄ device protocol
+  CHANGES.md            dated notes: what broke on real hardware, and why
 scripts/
   st                    SmartThings CLI in Docker
   run-devices.sh        virtual devices in Docker with host networking (Linux)
@@ -109,7 +110,13 @@ AGENTS.md               rules and checklists for AI coding agents (CLAUDE.md poi
 | Virtual devices, probe, hub-less driver tests | ✅ verified, run in CI |
 | Driver package builds with `@smartthings/cli` 3.0.1 | ✅ verified, run in CI |
 | Devices in Docker on Linux, discovered from the host network | ✅ verified, run in CI |
-| Install and run on a real hub | ⏳ not yet verified |
+| SSDP discovery reaching a real hub | ✅ verified 2026-11-19: logcat showed `ssdp:` answers from all 5 devices |
+| Devices created and working on a real hub | ✅ verified 2026-11-19, after the mDNS discovery fix |
+| Pushes reaching the hub (live state, no polling wait) | ✅ verified 2026-11-19, on all 5 device types |
+| Relocation after an address change, offline detection | ⏳ not yet checked on a hub |
+
+The story of that first hub run — the crash, the fix, and the network and CLI
+dead ends along the way — is in [docs/CHANGES.md](docs/CHANGES.md).
 
 ## Contributing / extending
 

@@ -36,6 +36,8 @@ The device must also answer `ST: ssdp:all`. The base URL is `LOCATION` without `
 
 Service type `_stlab._tcp`, domain `local`, with TXT records `id=<id>` and `type=<type>`. The driver uses it when the hub provides `st.mdns`. A phone app can be found this way without sending multicast traffic itself.
 
+The driver does not assume how `st.mdns` hands the TXT records over: a flat map, a list of `"id=..."` strings, or a list of `{key=, value=}` tables all work, and a reply it cannot read is logged and skipped instead of failing the scan. SSDP stays the reliable path.
+
 ## 2. HTTP API (on the device)
 
 | Method | Path | Body | Reply |

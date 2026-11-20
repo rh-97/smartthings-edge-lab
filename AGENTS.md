@@ -14,6 +14,7 @@ A **real, installable SmartThings Edge LAN driver** (Lua, runs on a SmartThings 
 | `virtual-device/probe.py` | Stand-in for the hub, for testing devices without one. Not used in production. | Laptop |
 | `docs/PROTOCOL.md` | The driver ⇄ device contract. **Source of truth.** | |
 | `docs/GUIDE.md` | Step-by-step guide for humans: concepts, install on a hub, troubleshooting | |
+| `docs/CHANGES.md` | Dated notes on what broke on real hardware and why — read before re-debugging discovery, the network, or the CLI | |
 | `scripts/` | `st` (SmartThings CLI in Docker), `run-devices.sh` (devices in Docker, Linux), `test-driver.sh`, `test-devices.sh` | Host shell |
 
 ## Commands
@@ -27,6 +28,10 @@ python3 virtual-device/virtual_device.py   # run the devices for real on macOS (
 ```
 
 Run **both test scripts** after any change. Both must pass. CI (`.github/workflows/ci.yml`) runs them, the package build, and a Linux job that starts `run-devices.sh` and discovers the devices from outside the container.
+
+**CLI credentials:** `scripts/st` needs `SMARTTHINGS_TOKEN` exported in the shell that runs it. CLI 3.0.x has **no `login` command**. If the user already has a host-installed `smartthings` (3.0.x), it works too (drop the `scripts/st ` prefix), but don't install one yourself (rule 7).
+
+**When Docker can't pull images** (some corporate networks block or intercept the downloads): don't fall back to installing tools on the host. Tell the user, and run the tests on another network or let CI run them. Only if the user explicitly agrees to a host install for that machine: the harness runs natively with Lua 5.3 plus the `cosock`, `luasocket` and `dkjson` rocks, as `lua5.3 tests/run_harness.lua` from `driver/`. See `docs/CHANGES.md` (2026-11-19) for how this showed up.
 
 ## Rules
 
@@ -64,7 +69,7 @@ Run **both test scripts** after any change. Both must pass. CI (`.github/workflo
 
 - Virtual devices, probe and hub-less driver tests: verified (Docker, CI).
 - Package build with the official CLI (`@smartthings/cli` 3.0.1): verified.
-- **On a real hub: not yet verified.** If you get hub logs (`scripts/st edge:drivers:logcat --hub-address=<ip> -a`), the most likely places for fixes are `discovery.lua` (SSDP/mDNS details) and `push_server.lua` (hub IP and port, cosock server). Update the "Status" section of README.md when verified.
+- **On a real hub: first contact made (2026-11-19).** Logcat showed the driver starting, the push server bound, and all 5 devices answering SSDP. That run also crashed the scan: `st.mdns` returned a service event whose TXT entries were not strings, and the exception inside `search_all` threw away every SSDP answer before `try_create_device` ran. `discovery.lua` now parses TXT records in any shape, isolates the mDNS side behind `pcall`, and wraps each scan round in `pcall`; `driver/tests/mocks/st/mdns.lua` covers those shapes. **With that build the hub run succeeded: the scan created the devices, commands worked, and every device type pushed state changes to the hub live (2026-11-19)** — which also confirms `push_server.lua` and that the hub's random push port is reachable from the LAN. Full write-up in `docs/CHANGES.md`. Still unverified on a hub: relocation after an address change, and offline/removed cleanup.
 
 ## Style
 

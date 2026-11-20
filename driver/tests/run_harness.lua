@@ -5,6 +5,7 @@ package.path = "tests/mocks/?.lua;src/?.lua;" .. package.path
 
 local cosock = require "cosock"
 local client = require "http_client"
+local discovery = require "discovery"
 
 local failures, passes = 0, 0
 local function check(cond, what)
@@ -12,6 +13,11 @@ local function check(cond, what)
   else failures = failures + 1; print("FAIL " .. what) end
 end
 local function sleep(s) cosock.socket.sleep(s) end
+local function count_keys(t)
+  local n = 0
+  for _ in pairs(t) do n = n + 1 end
+  return n
+end
 
 _G.HARNESS_SCENARIO = function()
   local ok, err = pcall(function()
@@ -20,6 +26,36 @@ _G.HARNESS_SCENARIO = function()
     local function by_profile(p)
       for _, d in ipairs(driver.devices) do if d.profile == p then return d end end
     end
+
+    -- 0. mDNS: TXT records arrive in more than one shape (this is what a real
+    -- hub's firmware did to the first version), and none of them may raise.
+    _G.MDNS_MOCK = {
+      found = {
+        { host_info = { address = "203.0.113.5", port = 8801 },
+          txt = { text = { { key = "id", value = "mdns-table" }, { key = "type", value = "switch" } } } },
+        { host_info = "not a table", txt = { id = "mdns-malformed" } }, -- must not stop the rest
+        { host_info = { address = "203.0.113.6", port = 8802 },
+          txt = { text = { "id=mdns-string", "type=dimmer" } } },
+        { host_info = { name = "phone.local.", address = "203.0.113.7", port = 8803 },
+          txt = { id = "mdns-flat", type = "contact" } },
+        { host_info = { address = "fe80::1", port = 8804 }, txt = { id = "mdns-ipv6" } },
+        { host_info = { address = "203.0.113.8", port = 8805 }, txt = { text = { "type=switch" } } },
+      },
+    }
+    local mdns_found = discovery.mdns_search()
+    check(mdns_found["mdns-table"] == "http://203.0.113.5:8801", "mdns: {key=, value=} TXT record parsed")
+    check(mdns_found["mdns-string"] == "http://203.0.113.6:8802", "mdns: \"id=...\" TXT record parsed")
+    check(mdns_found["mdns-flat"] == "http://203.0.113.7:8803", "mdns: flat TXT map parsed")
+    check(mdns_found["mdns-malformed"] == nil and mdns_found["mdns-ipv6"] == nil
+      and count_keys(mdns_found) == 3,
+      "mdns: malformed, IPv6 and id-less events skipped (got " .. count_keys(mdns_found) .. ")")
+
+    _G.MDNS_MOCK = { raises = "simulated hub failure" }
+    local raised_ok, raised = pcall(discovery.mdns_search)
+    check(raised_ok and next(raised) == nil, "mdns: a raising discover yields {} and no error")
+    _G.MDNS_MOCK = { error = "simulated hub error" }
+    check(next(discovery.mdns_search()) == nil, "mdns: a nil response is logged, not fatal")
+    _G.MDNS_MOCK = nil
 
     -- 1. Discovery: one search round, then stop.
     local rounds = 0

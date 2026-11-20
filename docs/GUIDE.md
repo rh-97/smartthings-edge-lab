@@ -184,6 +184,8 @@ Run it after every driver change. It's much faster than reinstalling on the hub.
 
 The first run downloads the CLI, so it's slow. Later runs reuse the Docker volume.
 
+**Already have the CLI installed on your machine?** A host-installed `smartthings` (3.0.x) works the same: leave `scripts/st ` off every command in this guide, and export `SMARTTHINGS_TOKEN` the same way. Version 3.0.x has **no `login` command**, so an exported token is the only way to give it credentials (§11 shows the error a missing token produces). The Docker wrapper is still the recommended route, since it installs nothing. Use a host install only on a network where Docker can't download images.
+
 ## 6. Put the driver on your hub
 
 ### Before you start
@@ -318,7 +320,11 @@ Every handler gets `(driver, device, command)`. `command.capability`, `command.c
 |---|---|
 | `probe.py discover` finds nothing | Is `virtual_device.py` running? Did you allow Python's incoming connections in the macOS prompt? Is a VPN on? |
 | The hub finds nothing, but probe does | The machine and hub must be on the same network and subnet. Guest Wi-Fi and "AP/client isolation" block device-to-device traffic. On macOS, check System Settings → Privacy & Security → Local Network for your terminal app. On Linux, check the firewall (§3). Run probe from a *second* machine: probe on the same machine succeeds even when the firewall blocks everyone else. |
+| Logcat shows `ssdp:` answers from your devices but no devices appear | The scan died after SSDP. Look for `discovery thread encountered error` or `discovery: round failed` right after those lines: one bad mDNS reply used to throw away every SSDP answer. Since 2026-11-19 a bad round is logged and the scan continues, and `mdns: response shape ...` shows what the hub actually sent. |
+| Devices appear in logcat as `http://<ip>:8801` with an IP the hub is not on | The laptop picked the wrong network interface for the address it advertises (VPN, or Wi-Fi plus another adapter). Start it with `python3 virtual-device/virtual_device.py --advertise-ip <the-ip-on-the-hub's-subnet>`; `ifconfig` shows which is which. |
 | `run-devices.sh` says it needs Linux | On macOS, use `python3 virtual-device/virtual_device.py` (§2 explains why). |
+| A cloud command says `Request to API failed with status undefined`, or sits at `- Logging In` | No token in this shell. 3.0.x has no `login` command: `export SMARTTHINGS_TOKEN=…` with a token made today, then check with `smartthings locations`. `edge:drivers:logcat` working at the same time is normal — it connects to the hub, not to the cloud. |
+| `logcat`: `Connection to <hub-ip>:9495 timed out` | The laptop is not on the hub's network. Check `route -n get <hub-ip>`: it must name an interface, not send you to the default gateway. Two Wi-Fi/VPN adapters on a laptop make this easy to hit. |
 | `run-devices.sh`: port 1900 or 8800 already in use | Another SSDP/DLNA service (e.g. minidlna) is usually fine, since the script shares port 1900. For 8800–8805, pass `--base-port 9000`. |
 | Devices created but never update from the dashboard | Look for `subscriber added` in the device log. If it's missing, the driver couldn't reach the device. If pushes fail, the laptop can't reach the hub's push port (firewall). The 60 s poll still keeps things roughly in sync. |
 | Nothing in logcat | Is the driver installed (`scripts/st edge:drivers:installed`)? Is the hub IP right? |

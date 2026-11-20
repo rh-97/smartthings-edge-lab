@@ -65,38 +65,118 @@ function M.ssdp_search(window)
   return found
 end
 
+--- Render a value compactly, so a hub structure we did not expect can still be
+-- read from logcat instead of just crashing on it.
+local function describe(value, depth)
+  if type(value) ~= "table" then
+    return type(value) .. "(" .. tostring(value):sub(1, 40) .. ")"
+  end
+  if (depth or 0) > 1 then return "table" end
+  local parts = {}
+  for key, item in pairs(value) do
+    parts[#parts + 1] = tostring(key) .. "=" .. describe(item, (depth or 0) + 1)
+  end
+  return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+--- Read one TXT value out of an mDNS event.
+-- The shape st.mdns hands over depends on the hub firmware: a flat map
+-- (`{ id = "..." }`), a list of `"id=..."` strings, or a list of
+-- `{ key =, value = }` tables, sometimes nested under `.text`. Accept any of
+-- them: guessing wrong should cost an address, not the whole discovery run.
+-- @return value string, or nil
+local function txt_value(event, key)
+  local pattern = "^" .. key .. "=(.+)$"
+
+  local function look(container)
+    if type(container) ~= "table" then return nil end
+    if type(container[key]) == "string" then return container[key] end
+    for _, entry in pairs(container) do
+      if type(entry) == "string" then
+        local value = entry:match(pattern)
+        if value then return value end
+      elseif type(entry) == "table" then
+        local name = entry.key or entry.name or entry[1]
+        local value = entry.value
+        if value == nil and type(name) == "string" then value = entry[2] end
+        if name == key and value ~= nil then
+          return tostring(value)
+        elseif type(name) == "string" then
+          local nested = name:match(pattern) -- the whole pair in one field
+          if nested then return nested end
+        end
+      end
+    end
+    return nil
+  end
+
+  local txt = type(event) == "table" and event.txt or nil
+  return look(txt) or look(type(txt) == "table" and txt.text or nil)
+end
+
+--- One mDNS event -> device id and base URL, or nil when it is unusable.
+local function event_to_base(event)
+  local host = type(event) == "table" and event.host_info or nil
+  if type(host) ~= "table" then return nil end
+  local address = host.address or host.ip
+  local port = tonumber(host.port)
+  -- Answers repeat once per network interface; keep IPv4 only.
+  if type(address) ~= "string" or not address:match("^%d+%.%d+%.%d+%.%d+$") or not port then
+    return nil
+  end
+  local id = txt_value(event, "id")
+  if not id then return nil end
+  return id, string.format("http://%s:%d", address, port)
+end
+
+local logged_shape = false
+
 --- mDNS/Bonjour search for _stlab._tcp. Returns {} on hubs without st.mdns.
+-- Never raises: whatever the hub does with the reply, discovery goes on.
 -- @return { [device id] = base_url }
 function M.mdns_search()
   local found = {}
   local has_mdns, mdns = pcall(require, "st.mdns")
   if not has_mdns then return found end
 
-  local response, err = mdns.discover(config.MDNS_SERVICE, config.MDNS_DOMAIN)
+  local called, response, err = pcall(mdns.discover, config.MDNS_SERVICE, config.MDNS_DOMAIN)
+  if not called then
+    log.warn("mdns: discover raised: " .. tostring(response))
+    return found
+  end
   if not response then
     log.debug("mdns: " .. tostring(err))
     return found
   end
-  for _, event in ipairs(response.found or {}) do
-    local host = event.host_info or {}
-    -- Answers repeat once per network interface; keep IPv4 only.
-    if host.address and host.address:match("^%d+%.%d+%.%d+%.%d+$") and host.port then
-      local id
-      for _, entry in ipairs((event.txt or {}).text or {}) do
-        id = id or entry:match("^id=(.+)$")
-      end
-      if id then
-        found[id] = string.format("http://%s:%d", host.address, host.port)
-      end
+  if not logged_shape then
+    logged_shape = true
+    log.debug("mdns: response shape " .. describe(response))
+  end
+
+  for index, event in ipairs(response.found or {}) do
+    local ok, id, base = pcall(event_to_base, event)
+    if not ok then
+      log.warn(string.format("mdns: event %d could not be parsed: %s", index, tostring(id)))
+    elseif id then
+      found[id] = found[id] or base
+      log.debug(string.format("mdns: %s at %s", id, base))
+    else
+      log.debug(string.format("mdns: event %d unusable: %s", index, describe(event)))
     end
   end
   return found
 end
 
---- Everything visible right now, from both protocols.
+--- Everything visible right now, from both protocols. SSDP results count even
+-- when the mDNS side fails outright.
 function M.search_all()
   local found = M.ssdp_search()
-  for id, base in pairs(M.mdns_search()) do
+  local ok, mdns_found = pcall(M.mdns_search)
+  if not ok then
+    log.warn("mdns: search failed, continuing with SSDP only: " .. tostring(mdns_found))
+    mdns_found = {}
+  end
+  for id, base in pairs(mdns_found) do
     found[id] = found[id] or base
   end
   return found
@@ -135,26 +215,37 @@ local function create(driver, id, base)
   })
 end
 
+--- One scan round: create what is new, keep the address of what is known.
+local function scan_round(driver, requested)
+  local known = known_devices(driver)
+  for id, base in pairs(M.search_all()) do
+    local device = known[id]
+    if device then
+      -- Already added: just keep its address current (DHCP, new port...).
+      if device:get_field(config.FIELD_BASE_URL) ~= base then
+        log.info(string.format("discovery: %s moved to %s", device.label, base))
+        device:set_field(config.FIELD_BASE_URL, base, { persist = true })
+      end
+    elseif not requested[id] then
+      requested[id] = true
+      create(driver, id, base)
+    end
+  end
+end
+
 --- Called by the hub when the user taps "Scan for nearby devices".
--- Keeps searching until the hub says stop (should_continue() == false).
+-- Keeps searching until the hub says stop (should_continue() == false). One bad
+-- round must never end the scan: that is how SSDP answers got thrown away when
+-- the mDNS reply turned out to look different than expected.
 function M.handler(driver, _opts, should_continue)
   log.info("discovery: started")
   local requested = {}
   while should_continue() do
-    local known = known_devices(driver)
-    for id, base in pairs(M.search_all()) do
-      local device = known[id]
-      if device then
-        -- Already added: just keep its address current (DHCP, new port...).
-        if device:get_field(config.FIELD_BASE_URL) ~= base then
-          log.info(string.format("discovery: %s moved to %s", device.label, base))
-          device:set_field(config.FIELD_BASE_URL, base, { persist = true })
-        end
-      elseif not requested[id] then
-        requested[id] = true
-        create(driver, id, base)
-      end
+    local ok, err = pcall(scan_round, driver, requested)
+    if not ok then
+      log.warn("discovery: round failed: " .. tostring(err))
     end
+    socket.sleep(1) -- without this the loop spins when a search returns fast
   end
   log.info("discovery: stopped")
 end
